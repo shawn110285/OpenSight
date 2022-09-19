@@ -234,6 +234,31 @@ static int32_t CheckFlag(char *pChar)
 }
 
 
+
+static int32_t CheckHex(char *pChar)
+{
+	int i = 0;
+    if(0 != strncasecmp(pChar, "0x", strlen("0x")))
+    {
+        return OSAL_FALSE;
+    }
+
+	for (i = 2; i < strlen(pChar); i++)  //skip 0x
+	{
+		if( ( (*pChar>='0')&&(*pChar<='9') ) || ((*pChar>='a')&&(*pChar<='f')) || ((*pChar>='A')&&(*pChar<='F')) )
+		{
+			pChar++;
+		}
+		else
+		{
+			return OSAL_FALSE;
+		}
+	}
+
+	return OSAL_TRUE;
+}
+
+
 int32_t CheckPara(char *pChar, uint16_t wParaType)
 {
 	int32_t bRet = OSAL_FALSE;
@@ -279,6 +304,10 @@ int32_t CheckPara(char *pChar, uint16_t wParaType)
 
 		case E_TYPE_FLAG:
 			bRet = CheckFlag(pChar);
+			break;
+
+        case E_TYPE_HEX:
+		    bRet = CheckHex(pChar);
 			break;
 
 		default:
