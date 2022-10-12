@@ -46,7 +46,8 @@ typedef struct tagGdbServerParam
 {
     uint32_t   dwGdbServerFlag;
     uint32_t   dwGdbServerIpAddr;
-    uint16_t   wGdbServerPort;
+    uint16_t   wHartNum;                 // specify the HART(Core) number
+    uint16_t   awGdbServerPort[100];      // the tcp ports for the service binded with HART
 }gdb_svr_param_t;
 
 

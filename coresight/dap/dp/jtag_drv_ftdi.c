@@ -49,8 +49,8 @@ static unsigned char mpsse_init[] =
 	MC_LOOPBACK_DIS,             // loopback off
 	MC_TCK_X5,                   // disable clock/5
 	MC_SET_CLK_DIV, (clk_divisor-1)&0xff, (clk_divisor-1)>>8, // set divisor, actual clock is 60MHz/(clkdiv), (clkdiv-1) & 0xff, (clkdiv-1) >> 8
-	MC_SETB_LOW, 0xe8, 0xeb, // set low state and direction
-	MC_SETB_HIGH, 0x00, 0x00, // set high state and dir
+	MC_SETB_LOW, 0xe8, 0xeb,     // set low state and direction, in openocd it was defined by ftdi_init_layout
+	MC_SETB_HIGH, 0x00, 0x00,    // set high state and direction
 };
 
 
@@ -71,13 +71,6 @@ static uint32_t ftdi_cmd_avail(jtag_driver_t *d)
 {
 	return CMD_MAX - (d->next - d->cmd);
 }
-
-
-int ftdi_setspeed(jtag_driver_t *d, int khz)
-{
-	return d->speed;
-}
-
 
 static void ftdi_reset_state(jtag_driver_t *d)
 {
@@ -307,6 +300,43 @@ static int ftdi_usb_bulk(struct libusb_device_handle * udev, unsigned char ep, v
 }
 
 
+
+int ftdi_setspeed(jtag_driver_t *d, int frequency)
+{
+	int base_clock = 60 * 1000000;  //if MC_TCK_X5, then base clock = 60M, otherwise base_clock = 12M
+    int divisor = 0;
+	uint8_t command_serial[3] = {0};
+
+	if(d == NULL)
+	{
+		fprintf(stderr,"ftdi set speed, invalid jtag_driver adapter\n");
+		return -1;
+	}
+
+    divisor = (base_clock / 2 + frequency - 1) / frequency - 1;
+    if (divisor > 65535)
+        divisor = 65535;
+
+    if(1)
+	{
+        // MC_SET_CLK_DIV, (clk_divisor-1)&0xff, (clk_divisor-1)>>8, // set divisor, actual clock is 60MHz/(clkdiv), (clkdiv-1) & 0xff, (clkdiv-1) >> 8
+		command_serial[0] = MC_SET_CLK_DIV;
+		command_serial[1] = (clk_divisor-1)&0xff;
+		command_serial[2] = (clk_divisor-1)>>8;
+
+	    if (ftdi_usb_bulk(d->udev, d->ep_out, command_serial, sizeof(command_serial), 1000) != sizeof(command_serial))
+		{
+			fprintf(stderr,"ftdi set speed, failed\n");
+	        return -1;
+		}
+	}
+
+    frequency = base_clock / 2 / (1 + divisor);
+    fprintf(stderr,"ftdi set speed, actually %d Hz", frequency);
+    d->speed = frequency;
+	return d->speed;
+}
+
 /* TODO: handle smaller packet size for lowspeed version of the part */
 /* TODO: multi-packet reads */
 /* TODO: asynch/background reads */
@@ -398,12 +428,12 @@ static void ftdi_display_mpsse(uint8_t * data, uint32_t n)
 		fprintf(stderr,"%02x: ", data[0]);
 		switch(data[0])
 		{
-			case 0x6B: // tms rw
+			case 0x6B: // [ox6B, Length Bytes1]: write out 0~Length+1 bits to TMS, started with LSB, and then read from TDO
 				fprintf(stderr, "x1 <- TDO, ");
 				// fall through
                 break;
 
-			case 0x4B: // tms wo
+			case 0x4B: // [ox4B, Length Bytes1]: write out 0~Length+1 bits to TMS, started with LSB
 				fprintf(stderr, "TMS <- ");
 				pbin(data[2],data[1]+1);
 				fprintf(stderr, ", TDI <- ");
@@ -413,21 +443,21 @@ static void ftdi_display_mpsse(uint8_t * data, uint32_t n)
 				n -= 3;
 				break;
 
-			case 0x2A: // ro bits
+			case 0x2A: // [0x2A, Length]: read in length+1 bits via tdo, started with LSB
 				fprintf(stderr, "x%d <- TDO\n", data[1] + 1);
 				data += 2;
 				n -= 2;
 				break;
 
-			case 0x28: // ro bytes
+			case 0x28: // [0x28, LengthL, LengthH]:read in (LengthH|LengthL)+1 bytes from the tdo, started with LSB
 				x = ((data[2] << 8) | data[1]) + 1;
 				fprintf(stderr, "x%d <- TDO\n", (int) x * 8);
 				data += 3;
 				n -= 3;
 				break;
 
-			case 0x1B: // wo bits
-			case 0x3B: // rw bits
+			case 0x1B: // [0x1b, Length, byte]: write out length+1 bits started with LSB via tdi
+			case 0x3B: // [0x3B, Length, byte]: read and write in bits
 				fprintf(stderr, "TDI <- ");
 				pbin(data[2], data[1] + 1);
 				if (data[0] == 0x3B)
@@ -442,8 +472,8 @@ static void ftdi_display_mpsse(uint8_t * data, uint32_t n)
 				n -= 3;
 				break;
 
-			case 0x19: // wo bytes
-			case 0x39: // rw bytes
+			case 0x19: // [0x19, LengthL, LengthH, byte1, ..., byte 65535]: write out (LengthH|LengthL) + 1 bytes started with LSB via tdi
+			case 0x39: // [0x39, LengthL, LengthH, byte1, ..., bytes65535]:read and write in bytes
 				x = ((data[2] << 8) | data[1]) + 1;
 				fprintf(stderr, "TDI <- ");
 				for (i = 0; i < x; i++) pbin(data[3+i], 8);
@@ -459,7 +489,7 @@ static void ftdi_display_mpsse(uint8_t * data, uint32_t n)
 				n -= (3 + x);
 				break;
 
-			case 0x87:
+			case 0x87: // send immediately
 				fprintf(stderr,"FLUSH\n");
 				data += 1;
 				n -= 1;
@@ -528,7 +558,7 @@ int ftdi_commit(jtag_driver_t *d)
 	ftdi_dump("rx", d->cmd, d->expected);
 #endif
 
-	for (op = d->op, x = d->cmd;;op++)
+	for (op = d->op, x = d->cmd; ; op++)
 	{
 		switch(op->op)
 		{

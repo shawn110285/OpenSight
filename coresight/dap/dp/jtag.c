@@ -23,6 +23,15 @@
 static uint8_t ONES[1024];
 
 
+static jtag_driver_table_t jtag_ftdi_drv_tbl =
+{
+	.init     = ftdi_init,
+	.close    = ftdi_close,
+	.setspeed = ftdi_setspeed,
+	.commit   = ftdi_commit,
+	.scan_tms = ftdi_scan_tms,
+	.scan_io  = ftdi_scan_io,
+};
 
 void jtag_clear_state(jtag_t *jtag)
 {
@@ -34,24 +43,12 @@ void jtag_clear_state(jtag_t *jtag)
 	jtag->ir.precount = 0;
 	jtag->ir.postbits = 0;
 	jtag->ir.postcount = 0;
+
 	jtag->dr.prebits = 0;
 	jtag->dr.precount = 0;
 	jtag->dr.postbits = 0;
 	jtag->dr.postcount = 0;
 }
-
-
-static jtag_driver_table_t jtag_ftdi_drv_tbl =
-{
-	.init     = ftdi_init,
-	.close    = ftdi_close,
-	.setspeed = ftdi_setspeed,
-	.commit   = ftdi_commit,
-	.scan_tms = ftdi_scan_tms,
-	.scan_io  = ftdi_scan_io,
-};
-
-
 
 int jtag_init(jtag_t ** _jtag)
 {
@@ -60,15 +57,18 @@ int jtag_init(jtag_t ** _jtag)
 
     if ((drv = malloc(sizeof(jtag_driver_t))) == 0)
 	{
+		fprintf(stderr,"jtag_init, malloc memory (jtag_driver_t) return failed, File:%s, Line:%d\n", __FILE__, __LINE__);
 		return -1;
 	}
 	memset(drv, 0, sizeof(jtag_driver_t));
 
 	if ((jtag = malloc(sizeof(jtag_t))) == 0)
 	{
+		fprintf(stderr,"jtag_init, malloc memory (jtag_t) return failed, File:%s, Line:%d\n", __FILE__, __LINE__);
 		return -1;
 	}
 
+    //init the jtag
 	memset(jtag, 0, sizeof(jtag_t));
 	jtag->drv = drv;
 	jtag->drvTbl = &jtag_ftdi_drv_tbl;
@@ -448,6 +448,7 @@ jtag_info_t * jtag_get_nth_device(jtag_t *jtag, int n)
 }
 
 
+// setup the device in the scan_chain, skip the bypass
 int jtag_select_device_nth(jtag_t *jtag, int num)
 {
 	uint32_t irpre = 0;

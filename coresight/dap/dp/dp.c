@@ -79,7 +79,7 @@ void jtag_dp_abort(dap_t *dap)
 	jtag_ir_wr(dap->jtag, 4, &x);  //ir len = 4
 
 	u = 8;
-	jtag_dr_wr(dap->jtag, 35, &u);  //scan len = 35 bits
+	jtag_dr_wr(dap->jtag, 35, &u);  //coresight dp, scan len = 35 bits
 	dap->cached_ir = 0xFFFFFFFF;
 }
 
@@ -120,6 +120,7 @@ int dap_commit(dap_t *dap)
 		return -1;
 	}
 
+    // skip the lowest 3 bits, the scan len = 35 bits, the highest 32 bits are payload
 	b >>= 3;
 	if (b & DPCSW_STICKYORUN)
 	{
@@ -161,12 +162,42 @@ int dap_dp_read(dap_t *dap, uint32_t addr, uint32_t *val)
 	return 0;
 }
 
-//Debug port read, it can be used to write the registers(DPACC_CSW, DPACC_SELECT) of dp
+
+//added two specific function for the DPACC_CSW, DPACC_SELECT registers
+int dap_dp_read_csw(dap_t *dap, uint32_t *val)
+{
+	uint32_t addr = DPACC_CSW;
+	return dap_dp_read(dap, addr, val);
+}
+
+
+int dap_dp_read_apsel(dap_t *dap, uint32_t *val)
+{
+	uint32_t addr = DPACC_SELECT;
+	return dap_dp_read(dap, addr, val);
+}
+
+
+//Debug port, it can be used to write the registers(DPACC_CSW, DPACC_SELECT) of dp
 int dap_dp_write(dap_t *dap, uint32_t addr, uint32_t val)
 {
 	jtag_dp_ir_write(dap, DP_IR_DPACC);
 	jtag_dp_dr_io(dap, 35, XPACC_WR(addr, val), NULL);
 	return jtag_commit(dap->jtag);
+}
+
+//added two specific function for the DPACC_CSW, DPACC_SELECT registers
+int dap_dp_write_csw(dap_t *dap, uint32_t val)
+{
+	uint32_t addr = DPACC_CSW;
+	return dap_dp_write(dap, addr, val);
+}
+
+
+int dap_dp_write_apsel(dap_t *dap, uint32_t val)
+{
+	uint32_t addr = DPACC_SELECT;
+	return dap_dp_write(dap, addr, val);
 }
 
 
@@ -225,6 +256,7 @@ int dap_attach(dap_t *dap)
 {
 	unsigned n;
 	uint32_t x;
+	uint8_t  err_flag= 0, sys_powerup_ack = 0, dbg_powerup_ack = 0;
 
 	if (jtag_enumerate(dap->jtag) < 0)
 	{
@@ -251,17 +283,38 @@ int dap_attach(dap_t *dap)
 			continue;
 
 		if (x & CSW_ERRORS)
+		{
+			err_flag = 1;
 			continue;
+		}
+		else
+		{
+			err_flag = 0;
+		}
 
 		if (!(x & DPCSW_CSYSPWRUPACK))
+		{
+			sys_powerup_ack = 0;
 			continue;
+		}
+		else
+		{
+			sys_powerup_ack = 1;
+		}
 
 		if (!(x & DPCSW_CDBGPWRUPACK))
+		{
+			dbg_powerup_ack = 0;
 			continue;
+		}
+		else
+		{
+			dbg_powerup_ack = 1;
+		}
 
 		return 0;
 	}
-	fprintf(stderr,"dap: attach failed\n");
+	fprintf(stderr,"dap: attach failed, err = %d, sys_powerup_ack = %d, dbg_powerup_ack = %d\n", err_flag, sys_powerup_ack, dbg_powerup_ack);
 	return -1;
 }
 
@@ -276,7 +329,7 @@ typedef struct tagCoresightComponent
 int dap_probe(dap_t *dap)
 {
 	unsigned n, i;
-	uint32_t x, y;
+	uint32_t idcode, ap_csw;
 
     coresight_component_t coresight_component_list[] =
 	{
@@ -320,19 +373,19 @@ int dap_probe(dap_t *dap)
 	for (n = 0; n < 256; n++)
 	{
 		// read the ap id
-		if (dap_ap_read(dap, n, APACC_IDR, &x))
+		if (dap_ap_read(dap, n, APACC_IDR, &idcode))
 			break;
 
-		if (x == 0)
+		if (idcode == 0)
 			break;
 
 		// read the ctrl_status_word
-		if (dap_ap_read(dap, n, APACC_CSW, &y) == 0)
+		if (dap_ap_read(dap, n, APACC_CSW, &ap_csw) == 0)
 		{
-			fprintf(stderr,"AP%d, id=0x%0xx CSW=0x%08x\n", n, x, y);
+			fprintf(stderr,"AP%d, id=0x%0xx CSW=0x%08x\n", n, idcode, ap_csw);
 			for(i=0; i<sizeof(coresight_component_list)/sizeof(coresight_component_list[0]); i++)
 			{
-				if(coresight_component_list[i].idcode == x)
+				if(coresight_component_list[i].idcode == idcode)
 				{
 					fprintf(stderr,"the device is: %s, version=%s\n", coresight_component_list[i].strName, coresight_component_list[i].strVersion );
 				}
@@ -345,18 +398,18 @@ int dap_probe(dap_t *dap)
 
 int dap_reset(dap_t *dap)
 {
-	uint32_t x;
+	uint32_t dp_csw;
 	if (dap_dp_write(dap, DPACC_CSW, CSW_ENABLES | DPCSW_CDBGRSTREQ))
 	{
 		return -1;
 	}
 
-	if (dap_dp_read(dap, DPACC_CSW, &x))
+	if (dap_dp_read(dap, DPACC_CSW, &dp_csw))
 	{
 		return -1;
 	}
 
-	fprintf(stderr,"reset the dap done, csw = 0x%08x\n", x);
+	fprintf(stderr,"reset the dap done, csw = 0x%08x\n", dp_csw);
 	return 0;
 }
 
@@ -371,14 +424,14 @@ int dap_reset(dap_t *dap)
 int dap_clear_stickyerr(dap_t * dap)
 {
     // Clear STICKYERR bit
-    uint32_t ctrlstat;
+    uint32_t dp_csw;
 
-	if(dap_dp_read(dap, DPACC_CSW, &ctrlstat) == -1)
+	if(dap_dp_read(dap, DPACC_CSW, &dp_csw) == -1)
 		return -1;
 
-	ctrlstat |= CTRL_STICKYERR;
+	dp_csw |= CTRL_STICKYERR;
 
-	if(dap_dp_write(dap, DPACC_CSW, ctrlstat) == -1)
+	if(dap_dp_write(dap, DPACC_CSW, dp_csw) == -1)
 		return -1;
 
     return 0;
@@ -393,12 +446,12 @@ int dap_clear_stickyerr(dap_t * dap)
 //=============================================================================
 int dap_check_clear_stickyerr(dap_t * dap)
 {
-    uint32_t ctrlstat;
+    uint32_t dp_csw;
 
-    if(dap_dp_read(dap, DPACC_CSW, &ctrlstat) == -1)
+    if(dap_dp_read(dap, DPACC_CSW, &dp_csw) == -1)
         return -1;
 
-    if(ctrlstat & DPCSW_STICKYERR )
+    if(dp_csw & DPCSW_STICKYERR )
     {
 		// StickyError was set
 		fprintf(stderr, "Accessing DP resulted in an error - the DP STICKYERR bit was set\n");

@@ -135,20 +135,41 @@ static int32_t parser_gdb_argument(yaml_iter_t * root_iter, config_param_t  * pt
             return OSAL_FALSE;
         }
 
-        if (!strcmp(value_key, "server"))
+        if (!strcmp(value_key, "enable"))
+        {
+            const char *v = yaml_iter_value(&iter);
+            if (v) ptConfigParam->tGdbSvrParam.dwGdbServerFlag  = atoi(v);
+        }
+        else if (!strcmp(value_key, "server"))
         {
             const char *v = yaml_iter_value(&iter);
             if (v) ptConfigParam->tGdbSvrParam.dwGdbServerIpAddr = ntohl(inet_addr(v));
         }
+        else if (!strcmp(value_key, "hart_num"))
+        {
+            const char *v = yaml_iter_value(&iter);
+            if (v) ptConfigParam->tGdbSvrParam.wHartNum = atoi(v);
+        }
         else if (!strcmp(value_key, "port"))
         {
+            uint16_t  wHardId = 0;
+            char    * token = NULL;
+
+            const char delimiter[2] = ":";              //split the port list, the delimiter is :
             const char *v = yaml_iter_value(&iter);
-            if (v) ptConfigParam->tGdbSvrParam.wGdbServerPort = atoi(v);
-        }
-        else if (!strcmp(value_key, "enable"))
-        {
-            const char *v = yaml_iter_value(&iter);
-            if (v) ptConfigParam->tGdbSvrParam.dwGdbServerFlag  = atoi(v);
+            if (v)
+            {
+                /* get the first token */
+                token = strtok(v, delimiter);
+
+                /* walk through other tokens */
+                while( token != NULL && wHardId < 100)
+                {
+                    ptConfigParam->tGdbSvrParam.awGdbServerPort[wHardId] = atoi(token);
+                    token = strtok(NULL, delimiter);
+                    wHardId ++ ;
+                }
+            }
         }
         else
         {

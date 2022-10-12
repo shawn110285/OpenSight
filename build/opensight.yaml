@@ -32,7 +32,8 @@ telnet:
 gdb:
     enable     : 1
     server     : 127.0.0.1
-    port       : 10300
+    hart_num   : 4
+    port       : 10300:10301:10302:10303
 
 coresight:
     clk_div    : 1

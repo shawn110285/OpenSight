@@ -31,7 +31,13 @@ extern int    dap_probe(dap_t *dap);
 
 // interface to access the debug port registers, DPACC
 extern int dap_dp_read(dap_t *dap, uint32_t addr, uint32_t *val);
+extern int dap_dp_read_csw(dap_t *dap, uint32_t *val);
+extern int dap_dp_read_apsel(dap_t *dap, uint32_t *val);
+
 extern int dap_dp_write(dap_t *dap, uint32_t addr, uint32_t val);
+extern int dap_dp_write_csw(dap_t *dap, uint32_t val);
+extern int dap_dp_write_apsel(dap_t *dap, uint32_t val);
+
 
 // interface to access the specified ap registers, APACC
 extern int dap_ap_read(dap_t *dap, uint32_t apnum, uint32_t addr, uint32_t *val);

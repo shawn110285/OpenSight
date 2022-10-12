@@ -23,7 +23,7 @@
 #include "../../osal/include/osalmsgdef.h"
 #include "../../telnet_svr/include/telnetapi.h"
 
-
+//todo: the sgiGdbSvrListenSocket should be linked to a particular service and the sgiConnSocket should be linked with a connection
 static  int     sgiGdbSvrListenSocket   = INVALID_SOCKET;
 static  int     sgiConnSocket           = INVALID_SOCKET;
 
@@ -202,39 +202,46 @@ extern config_param_t  gtSysCfgParam;
 
 static int32_t gdb_svr_init_socket()
 {
+	uint16_t wHardId;
 	struct sockaddr_in  tGdbSrvAddr;
 	int opt = 1;
 
-	sgiGdbSvrListenSocket = iprt_socket(AF_INET,SOCK_STREAM, 0);
-	if(sgiGdbSvrListenSocket==INVALID_SOCKET)
+    // setup the tcp server for each service
+	// todo: the sgiGdbSvrListenSocket should be linked to a particular service and the sgiConnSocket should be linked with a connection
+    for(wHardId = 0; wHardId < gtSysCfgParam.tGdbSvrParam.wHartNum; wHardId++)
 	{
-		osal_dbg_print(OSAL_DBG_PRN_LEVEL_0,"[gdb]:iprt_socket Failed! \n");
-		return OSAL_FALSE;
-	}
+		sgiGdbSvrListenSocket = iprt_socket(AF_INET,SOCK_STREAM, 0);
+		if(sgiGdbSvrListenSocket==INVALID_SOCKET)
+		{
+			osal_dbg_print(OSAL_DBG_PRN_LEVEL_0,"[gdb]:iprt_socket Failed! \n");
+			return OSAL_FALSE;
+		}
 
-	if (-1 == iprt_setsockopt(sgiGdbSvrListenSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(int)))
-	{
-		osal_dbg_print(OSAL_DBG_PRN_LEVEL_0,"[gdb]:iprt_setsockopt Failed! \n");
-		return OSAL_FALSE;
-	}
+		if (-1 == iprt_setsockopt(sgiGdbSvrListenSocket, SOL_SOCKET, SO_REUSEADDR, (char *)&opt, sizeof(int)))
+		{
+			osal_dbg_print(OSAL_DBG_PRN_LEVEL_0,"[gdb]:iprt_setsockopt Failed! \n");
+			return OSAL_FALSE;
+		}
 
-	memset(&tGdbSrvAddr,0,sizeof(struct sockaddr_in));
-	tGdbSrvAddr.sin_family    = AF_INET;
-	tGdbSrvAddr.sin_port      = htons(gtSysCfgParam.tGdbSvrParam.wGdbServerPort);
-	tGdbSrvAddr.sin_addr.s_addr = htonl(gtSysCfgParam.tGdbSvrParam.dwGdbServerIpAddr);
-	if(0 != iprt_bind(sgiGdbSvrListenSocket,(struct sockaddr *)&tGdbSrvAddr, sizeof(tGdbSrvAddr)))
-	{
-		osal_dbg_print(OSAL_DBG_PRN_LEVEL_2,"[gdb]:ListenTask,bind failed!\n");
-		iprt_close(sgiGdbSvrListenSocket);
-		return OSAL_FALSE;
-	}
+		memset(&tGdbSrvAddr,0,sizeof(struct sockaddr_in));
+		tGdbSrvAddr.sin_family    = AF_INET;
+		tGdbSrvAddr.sin_port      = htons(gtSysCfgParam.tGdbSvrParam.awGdbServerPort[wHardId]);
+		tGdbSrvAddr.sin_addr.s_addr = htonl(gtSysCfgParam.tGdbSvrParam.dwGdbServerIpAddr);
+		if(0 != iprt_bind(sgiGdbSvrListenSocket,(struct sockaddr *)&tGdbSrvAddr, sizeof(tGdbSrvAddr)))
+		{
+			osal_dbg_print(OSAL_DBG_PRN_LEVEL_2,"[gdb]:ListenTask,bind failed!\n");
+			iprt_close(sgiGdbSvrListenSocket);
+			return OSAL_FALSE;
+		}
 
-	if(iprt_listen(sgiGdbSvrListenSocket,5)==-1)
-	{
-		osal_dbg_print(OSAL_DBG_PRN_LEVEL_2,"[gdb]:iprt_listen Failed! \n");
-		return OSAL_FALSE;
-	}
+		if(iprt_listen(sgiGdbSvrListenSocket,5)==-1)
+		{
+			osal_dbg_print(OSAL_DBG_PRN_LEVEL_2,"[gdb]:iprt_listen Failed! \n");
+			return OSAL_FALSE;
+		}
+        osal_dbg_print(OSAL_DBG_PRN_LEVEL_0,"[gdb]:create a socket, listening at port(%d) for hard (%d)! \n", gtSysCfgParam.tGdbSvrParam.awGdbServerPort[wHardId], wHardId);
 
+	}
 	return OSAL_TRUE;
 }
 
